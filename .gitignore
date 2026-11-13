@@ -1,0 +1,4 @@
+site/
+data/catalog.json
+__pycache__/
+*.pyc

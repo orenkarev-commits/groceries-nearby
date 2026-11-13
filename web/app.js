@@ -37,7 +37,17 @@
 .v4 .ln .q { color: var(--muted); }
 .v4 .ln .nm { font-weight: 600; font-family: Rubik, sans-serif; font-size: 15px; overflow-wrap: anywhere; }
 .v4 .ln .he { font-family: Rubik, sans-serif; font-size: 13px; color: var(--muted); display: block; overflow-wrap: anywhere; }
-.v4 .ln .exact { font-family: Rubik, sans-serif; font-size: 11px; color: var(--leaf); }
+.v4 .ln .exact { font-family: Rubik, sans-serif; font-size: 11px; color: var(--leaf); display: block; }
+.v4 .pickbtn { display: block; margin-top: 3px; border: 0; background: none; padding: 0; font-family: Rubik, sans-serif; font-size: 12px; color: var(--leaf); text-decoration: underline dotted; text-underline-offset: 3px; }
+.v4 .chooser { grid-column: 2 / -1; margin-top: 6px; border: 1px dashed var(--rule); border-radius: 10px; padding: 6px; display: grid; gap: 2px; font-family: Rubik, sans-serif;
+  animation: v4chooser 200ms cubic-bezier(0.23,1,0.32,1) both; }
+@keyframes v4chooser { from { opacity: 0; transform: translateY(-4px); } }
+.v4 .ch-head, .v4 .ch-empty { margin: 2px 6px 4px; font-size: 12px; color: var(--muted); }
+.v4 .ch-it { display: grid; gap: 1px; text-align: right; border: 0; background: none; padding: 7px 8px; border-radius: 8px; color: var(--ink); transition: background-color 160ms ease, transform 160ms cubic-bezier(0.23,1,0.32,1); }
+.v4 .ch-it:active { transform: scale(0.98); }
+@media (hover: hover) and (pointer: fine) { .v4 .ch-it:hover { background: var(--leaf-soft); } }
+.v4 .ch-he { font-size: 14px; font-weight: 500; }
+.v4 .ch-en { font-size: 12px; color: var(--muted); text-align: left; }
 .v4 .tools { display: flex; gap: 3px; }
 .v4 .tb { border: 1px solid var(--rule); background: var(--paper); width: 28px; height: 28px; border-radius: 6px; font-family: Rubik, sans-serif; color: var(--ink); transition: transform 160ms cubic-bezier(0.23,1,0.32,1), border-color 160ms ease; }
 @media (hover: hover) and (pointer: fine) { .v4 .tb:hover { border-color: var(--ink); } }
@@ -184,7 +194,7 @@
   .v4 .seg { background: #1A221E; border-color: #2A3630; } .v4 .seg button { color: #9DAAA3; } .v4 .seg button[aria-pressed="true"] { background: #E6ECE8; color: #121815; }
   .v4 .mapcard, .v4 .waiting { border-color: #2A3630; }
 }
-@media (prefers-reduced-motion: reduce) { .v4 .receipt[data-enter], .v4 .ln[data-new], .v4 .ln.strike::after, .v4 .sc[data-deal], .v4 .pin[data-drop], .v4 .md.pop { animation: none; } .v4 .sc, .v4 .pin .hd { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .v4 .receipt[data-enter], .v4 .ln[data-new], .v4 .ln.strike::after, .v4 .sc[data-deal], .v4 .pin[data-drop], .v4 .md.pop, .v4 .chooser { animation: none; } .v4 .sc, .v4 .pin .hd { transition: none; } }
 `;
   let style, root, cmp, mapc, off, sel = null, dropped = false, lastPodium = "";
 
@@ -198,10 +208,29 @@
       const en = t.en || (l.k ? "" : t.he); const he = t.he && t.he !== en ? t.he : "";
       return `<li class="ln" data-id="${esc(id)}" ${id === addedId ? "data-new" : ""}>
         <span class="q">${l.qty}×</span>
-        <span><span class="nm">${esc(en || he)}</span>${en && he ? `<bdi class="he" dir="rtl" lang="he">${esc(he)}</bdi>` : ""}${l.k ? `<span class="exact">this exact product</span>` : ""}</span>
+        <span><span class="nm">${esc(en || he)}</span>${en && he ? `<bdi class="he" dir="rtl" lang="he">${esc(he)}</bdi>` : ""}${l.k ? `<span class="exact">this exact product${sizeText(S.byKey.get(l.k) || {}) ? " · " + esc(sizeText(S.byKey.get(l.k))) : ""}</span>` : ""}
+          ${l.alts ? `<button class="pickbtn" data-a="choose" aria-expanded="${chooserOpen === id}">${chooserOpen === id ? "Keep it general" : "Any brand or size · choose exact"}</button>` : ""}</span>
         <span class="tools"><button class="tb" data-a="dec" aria-label="One less">−</button><button class="tb" data-a="inc" aria-label="One more">+</button><button class="tb" data-a="del" aria-label="Remove">×</button></span>
+        ${l.alts && chooserOpen === id ? chooserHTML(l) : ""}
       </li>`;
     }).join("");
+  }
+
+  // ---- choose the exact product for a general item (all its matches, most widely stocked first)
+  let chooserOpen = null;
+  function chooserHTML(l) {
+    const c = termCandidates(l).slice(0, 15);
+    if (!c.length) return `<div class="chooser"><p class="ch-empty">Nothing matching is sold within your walk.</p></div>`;
+    return `<div class="chooser"><p class="ch-head">Pick the one you want</p>${c.map(m => { const g = glossHe(m.it.n); const sz = sizeText(m.it);
+      return `<button class="ch-it" data-k="${esc(m.it.k)}"><bdi dir="rtl" lang="he" class="ch-he">${esc(m.it.n)}</bdi>
+        <span class="ch-en">${g.known ? esc(g.text) : ""}${sz ? `${g.known ? " · " : ""}${esc(sz)}` : ""} · ${m.n} shop${m.n === 1 ? "" : "s"}</span></button>`; }).join("")}</div>`;
+  }
+  function pinExact(id, k) {
+    const l = S.list.find(x => lineId(x) === id); const it = S.byKey.get(k); if (!l || !it) return;
+    const dup = S.list.find(x => x.k === k);
+    if (dup && dup !== l) { dup.qty += l.qty; S.list = S.list.filter(x => x !== l); }
+    else { const qty = l.qty; Object.keys(l).forEach(key => delete l[key]); Object.assign(l, { k, n: it.n, qty }); }
+    chooserOpen = null; saveList(); emit({ added: k });
   }
 
   // ---- race: top 3 shop cards
@@ -221,6 +250,7 @@
         <div class="bd"><div class="tot"><span class="v" data-v="${prev.get(String(s.id)) || 0}">₪0</span><span class="w">${Math.round(s.walk)} min walk</span></div>
           <div class="dots" aria-label="${r.found} of ${lines.length} items">${lines.map(l => `<i class="${r.missing.includes(l) ? "" : "on"}"></i>`).join("")}</div>
           ${r.missing.length ? `<div class="miss">Missing ${r.missing.map(m => esc(lineTitle(m).en || lineTitle(m).he)).join(", ")}</div>` : r.saved > 0.005 ? `<div class="note">Has everything · deals save ${ils(r.saved)}</div>` : `<div class="note">Has everything</div>`}
+          ${s.stale_from ? `<div class="note">Prices from ${new Date(s.stale_from).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</div>` : ""}
         </div></article>`; }).join("");
     top.forEach(r => { const el = $(`.sc[data-key="${r.s.id}"] .v`, box); el && tween(el, r.total); });
     flipPlay($$(".sc", box), before, { duration: 300 });
@@ -242,10 +272,13 @@
   function renderSplit(w, animateOpen) {
     const box = $(".split", root);
     const sp = w ? splitGroups() : null;
-    if (!w || !sp || sp.groups.length < 2 || sp.total > w.total - 0.5) { box.innerHTML = ""; return; }
-    const save = w.total - sp.total, max = Math.max(...sp.groups.map(g => g.sub));
+    if (!w || !sp || !sp.groups.length) { box.innerHTML = ""; return; }
+    // always there once the list has prices; closed until clicked
+    const save = Math.max(0, w.total - sp.total), max = Math.max(...sp.groups.map(g => g.sub));
+    const worth = sp.groups.length > 1 && save >= 0.5;
     box.innerHTML = `<button class="split-toggle" aria-expanded="${splitOpen}" aria-controls="splitPanel">
-        <span><b>Split the shop</b> across ${sp.groups.length} shops: <b>${ils(sp.total)}</b> <span class="save">save ${ils(save)}</span></span><span class="chev" aria-hidden="true">▾</span></button>
+        <span>${worth ? `<b>Split the shop</b> across ${sp.groups.length} shops: <b>${ils(sp.total)}</b> <span class="save">save ${ils(save)}</span>`
+          : `<b>Split the shop</b>: no saving, ${esc(brandOf(sp.groups[0].s))} is already cheapest${sp.groups.length > 1 ? " overall" : " for everything"}`}</span><span class="chev" aria-hidden="true">▾</span></button>
       <div class="split-panel" id="splitPanel" ${splitOpen ? "" : "hidden"}>
         ${sp.groups.map((g, i) => `<div class="sp-row" data-sid="${g.s.id}">
           <span class="pos">${i + 1}</span>
@@ -254,7 +287,7 @@
           <span class="amt">${ils(g.sub)}<small>${g.items.length} item${g.items.length === 1 ? "" : "s"}</small></span>
           <span class="buy">${g.items.map(({ l, r }) => `<span class="bi">${esc(lineTitle(l).en || lineTitle(l).he)}${l.qty > 1 ? ` ×${l.qty}` : ""} <em>${ils(r.o.total)}</em></span>`).join("")}</span>
         </div>`).join("")}
-        <div class="sp-foot"><span>${sp.groups.length} stops instead of 1 · ${ils(save)} less than ${esc(brandOf(w.s))} alone</span><b>${ils(sp.total)}</b></div>
+        <div class="sp-foot"><span>${worth ? `${sp.groups.length} stops instead of 1 · ${ils(save)} less than ${esc(brandOf(w.s))} alone` : `Best price for each item; one stop at ${esc(brandOf(w.s))} costs ${ils(w.total)}`}</span><b>${ils(sp.total)}</b></div>
         ${sp.nowhere.length ? `<div class="sp-none">Not sold within your walk: ${sp.nowhere.map(l => esc(lineTitle(l).en || lineTitle(l).he)).join(", ")}</div>` : ""}
       </div>`;
     if (animateOpen && !REDUCED) {
@@ -278,7 +311,7 @@
     const c = $(".shopcard", root);
     if (sel == null) { c.dataset.state = "closed"; return; }
     const s = S.stores[sel]; const lines = pricedLines(); const b = hasPrices(s) && lines.length ? baskets().find(r => r.s.id === sel) : null;
-    c.innerHTML = `<button class="x" aria-label="Close">×</button><div class="cb" style="--c:${bColor(s)}"><i></i>${esc(brandOf(s))}</div><div class="muted">${locHTML(s)} · about ${Math.round(s.walk)} min walk</div>
+    c.innerHTML = `<button class="x" aria-label="Close">×</button><div class="cb" style="--c:${bColor(s)}"><i></i>${esc(brandOf(s))}</div><div class="muted">${locHTML(s)} · about ${Math.round(s.walk)} min walk${s.stale_from ? ` · prices from ${new Date(s.stale_from).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : ""}</div>
       <div class="tt">${!hasPrices(s) ? `<span class="muted">${esc(noPriceWhy(s))}</span>` : b ? `<b>${ils(b.total)}</b> for ${b.found} of ${lines.length}${b.missing.length ? ` · missing ${b.missing.map(m => esc(lineTitle(m).en || lineTitle(m).he)).join(", ")}` : ""}` : lines.length ? "Has nothing from your list" : `${s.n_items.toLocaleString()} products · ${s.n_promos || 0} deals today`}</div>
       <a href="${directionsURL(s)}" target="_blank" rel="noopener">Walking directions</a>`;
     c.dataset.state = "open";
@@ -394,6 +427,8 @@
         const sr = e.target.closest(".sp-row[data-sid]"); if (sr) { select(+sr.dataset.sid); $(".mapcard", root).scrollIntoView({ behavior: REDUCED ? "auto" : "smooth", block: "nearest" }); return; }
         const c = e.target.closest(".sc[data-sid]"); if (c) { select(+c.dataset.sid); return; }
         const w = e.target.closest(".seg button"); if (w) { S.walk = +w.dataset.w; $$(".seg button", root).forEach(b => b.setAttribute("aria-pressed", b === w)); emit({}); mapc && mapc.fit(); return; }
+        const chIt = e.target.closest(".ch-it"); if (chIt) { pinExact(chIt.closest(".ln").dataset.id, chIt.dataset.k); return; }
+        const ch = e.target.closest("[data-a=choose]"); if (ch) { const id = ch.closest(".ln").dataset.id; chooserOpen = chooserOpen === id ? null : id; renderLines(); return; }
         const t = e.target.closest(".tb"); if (!t) return;
         const ln = t.closest(".ln"); const id = ln.dataset.id;
         if (t.dataset.a === "inc") changeQty(id, 1);

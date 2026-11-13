@@ -61,7 +61,14 @@ function glossHe(text) {
     if (!isHeb(t)) { out.push(t); continue; }
     total++; if (out[out.length - 1] !== "…") out.push("…");
   }
-  return { text: out.join(" ").replace(/\s+/g, " ").trim(), known, total };
+  return { text: out.join(" ").replace(/\s+/g, " ").trim(), known, total, parts: out };
+}
+// Hebrew puts the noun first ("חמאה צרפתית"), English last ("french butter"): flip the phrases for a short label.
+function heToEnLabel(text) {
+  const g = glossHe(text);
+  if (!g.known) return "";
+  if (g.text.includes("…") || /\d/.test(g.text) || g.parts.length > 4) return g.text;
+  return g.parts.slice().reverse().join(" ");
 }
 function glossEn(text) {
   const words = text.toLowerCase().replace(/[,.;:!?]/g, " ").split(/\s+/).filter(Boolean); const groups = []; let known = 0;
@@ -77,14 +84,39 @@ function glossEn(text) {
   }
   return { text: groups.map(g => g.idx !== undefined ? GLOSSARY[g.idx][1][0] : g.label).join(" "), groups, known, total: groups.length };
 }
+// A query (English, Hebrew, or both mixed) becomes groups of alternatives that must appear in a product name.
+// English words the glossary doesn't know become optional (they rank results, never empty them), unless
+// nothing else in the query was understood (then they're matched literally, e.g. a Latin brand on the label).
 function parseQuery(q) {
   q = norm(q); if (!q) return null;
-  if (isHeb(q)) return { groups: q.split(" ").filter(Boolean).map(w => ({ label: w, alts: [w.toLowerCase()] })), en: glossHe(q).text, he: q };
-  const g = glossEn(q);
-  const groups = g.groups.map(x => x.idx !== undefined
-    ? { label: x.label, he: GLOSSARY[x.idx][1][0], alts: GLOSSARY[x.idx][1].map(a => norm(a).toLowerCase()).filter(a => a.length >= 2 || /^[a-z]$/.test(a)) }
-    : { label: x.label, alts: [x.label.toLowerCase()], literal: true });
-  return { groups, en: q, he: g.known ? g.text : "" };
+  const groups = []; let buf = [];
+  const flushEn = () => {
+    if (!buf.length) return;
+    glossEn(buf.join(" ")).groups.forEach(x => groups.push(x.idx !== undefined
+      ? { label: x.label, he: GLOSSARY[x.idx][1][0], alts: GLOSSARY[x.idx][1].map(a => norm(a).toLowerCase()).filter(a => a.length >= 2 || /^[a-z]$/.test(a)) }
+      : { label: x.label, alts: [x.label.toLowerCase()], literal: true }));
+    buf = [];
+  };
+  for (const t of q.split(" ")) {
+    if (isHeb(t) || /\d/.test(t)) { flushEn(); groups.push({ label: t, he: isHeb(t) ? t : "", alts: [t.toLowerCase()], native: true }); }
+    else buf.push(t);
+  }
+  flushEn();
+  const understood = groups.some(g => !g.literal);
+  if (understood) groups.forEach(g => { if (g.literal) g.optional = true; });
+  let required = groups.filter(g => !g.optional);
+  // the head noun goes first (product names start with it): last word in English ("french butter"), first in Hebrew
+  if (required.length > 1 && !isHeb(q.split(" ")[0]) && !required[required.length - 1].native) required = [required[required.length - 1], ...required.slice(0, -1)];
+  const he = required.concat(groups.filter(g => g.optional)).filter(g => g.he).map(g => g.he).join(" ");
+  const en = isHeb(q) && !/[a-z]/i.test(q) ? heToEnLabel(q) : q;
+  return { groups: required, optional: groups.filter(g => g.optional), en, he, unknown: groups.filter(g => g.optional).map(g => g.label) };
+}
+
+// ---------- narrowing filters ("must"): plain data, so they can be saved with a list item and shared
+const UNIT_CLASS = u => /גרם/.test(u) ? "g" : /קילו/.test(u) ? "kg" : /מיליליטר|מ"ל/.test(u) ? "ml" : /ליטר/.test(u) ? "L" : /יחיד/.test(u) ? "pcs" : "";
+function passMust(it, must) {
+  if (!must || !must.length) return true;
+  return must.every(f => f.type === "size" ? (it.q === f.q && UNIT_CLASS(it.u || "") === f.u) : f.alts.some(a => it._h.includes(a)));
 }
 
 // ---------- prices
@@ -112,26 +144,64 @@ function perUnit(price, it) {
 }
 const dealText = pr => pr[2] > 1 ? `${pr[2]} for ${ils(pr[1] * pr[2])}` : ils(pr[1]);
 function priceHTML(pr) { const u = unitBest(pr); return u.deal ? `<span class="p-tag${pr[5] ? " club" : ""}" title="${esc(pr[3])}">${dealText(pr)}</span>` : `<span class="p-num">${ils(pr[0])}</span>`; }
-function matches(groups, startOnly) {
+function matches(groups, startOnly, must, optional) {
+  if (!groups || !groups.length) return [];
   const ids = new Set(inRange().map(s => s.id)); const out = [];
   for (const it of S.items) {
     const h = it._h; let ok = true;
     for (const g of groups) { if (!g.alts.some(a => h.includes(a))) { ok = false; break; } }
-    if (!ok) continue;
+    if (!ok || !passMust(it, must)) continue;
     const start = groups[0].alts.some(a => h.startsWith(a));
     if (startOnly && !start) continue;
     let n = 0, best = null;
     for (const sid in it.p) if (ids.has(+sid)) { n++; const u = unitBest(it.p[sid]); if (!best || u.v < best.v) best = { v: u.v, pr: it.p[sid], s: S.stores[+sid] }; }
-    if (n) out.push({ it, n, best, score: (start ? 1000 : 0) + n * 3 - it.n.length / 25 });
+    const extra = (optional || []).filter(g => g.alts.some(a => h.includes(a))).length;
+    if (n) out.push({ it, n, best, score: (start ? 1000 : 0) + extra * 200 + n * 3 - it.n.length / 25 });
   }
   return out.sort((a, b) => b.score - a.score);
 }
+
+// Chips that split the current matches: kind/origin words from the names, fat %, pack size.
+function refineChips(ms, groups, must) {
+  const pool = ms.slice(0, 400); const total = pool.length; if (total < 3) return [];
+  const have = new Set((must || []).map(f => f.key));
+  const qa = new Set(groups.flatMap(g => g.alts));
+  const words = new Map(), pcts = new Map(), sizes = new Map();
+  const bump = (m, k, v) => { const e = m.get(k) || { ...v, n: 0 }; e.n++; m.set(k, e); };
+  for (const { it } of pool) {
+    const seen = new Set();
+    const toks = norm(it.n).split(" ").map(r => r.replace(/[,.()*]/g, ""));
+    for (let i = 0; i < toks.length; i++) {
+      let t = toks[i], gi;
+      // two-word phrases first ("ללא מלח" = unsalted, "כתית מעולה" = extra virgin)
+      if (i + 1 < toks.length && (gi = heLookup(t + " " + toks[i + 1])) !== undefined) { t = t + " " + toks[i + 1]; i++; }
+      else gi = undefined;
+      if (gi === undefined && (t.length < 3 || /\d/.test(t) || !isHeb(t))) continue;
+      if ([...qa].some(a => t.includes(a) || a.includes(t))) continue;
+      if (/^(גרם|גר|ליטר|מ"ל|יח'|יחידות|ק"ג|במשקל|ארוז|מארז|ללא|עם|של|בטעם)$/.test(t)) continue;
+      if (gi === undefined) gi = heLookup(t);
+      const key = gi !== undefined ? "g" + gi : "w" + t;
+      if (seen.has(key)) continue; seen.add(key);
+      const label = gi !== undefined ? GLOSSARY[gi][0][0] : "";
+      const alts = gi !== undefined ? GLOSSARY[gi][1].map(a => norm(a).toLowerCase()).filter(a => a.length >= 2) : [t.toLowerCase()];
+      bump(words, key, { type: "word", key, en: label, he: gi !== undefined ? GLOSSARY[gi][1][0] : t, alts });
+    }
+    const p = it.n.match(/(\d+(?:\.\d+)?)\s*%/); if (p) bump(pcts, "p" + p[1], { type: "word", key: "p" + p[1], en: p[1] + "%", he: "", alts: [p[1] + "%"] });
+    const uc = UNIT_CLASS(it.u || ""); if (it.q && uc && !(uc === "pcs" && it.q === 1) && !(uc === "kg" && it.q === 1)) {
+      const q = +it.q.toFixed(3); bump(sizes, "s" + q + uc, { type: "size", key: "s" + q + uc, en: `${q} ${uc}`, he: "", q: it.q, u: uc }); }
+  }
+  const useful = m => [...m.values()].filter(c => c.n >= 2 && c.n < total && !have.has(c.key)).sort((a, b) => b.n - a.n);
+  // known words first (they have English), then the most common unknown ones
+  const w = useful(words); const known = w.filter(c => c.en), unk = w.filter(c => !c.en);
+  return [...known.slice(0, 6), ...unk.slice(0, Math.max(0, 4 - Math.min(4, known.length))), ...useful(pcts).slice(0, 3), ...useful(sizes).slice(0, 4)];
+}
+const chipLabel = c => c.en && c.he ? `${c.en} · ${c.he}` : (c.en || c.he);
 const PROCESSED = ["מרוסק", "רסק", "רוטב", "שימורי", "מיובש", "יבשות", "ממרח", "חטיף", "בטעם", "טעם ", "אבקת", "מחית", "תרכיז", "משקה", "קפוא", "פריכיות", "מעדן", "כיף כף", "מקולפ", "חתוכ", "מבושל", "ממולא", "כבושים", "חמוצ", "קוביות", "מוחמצ", "2.5 a", "a 2.5"];
 function termCandidates(line) {
-  const key = line.alts.join("|") + "/" + S.walk + "/" + S.club;
+  const key = line.alts.join("|") + "/" + JSON.stringify(line.must || []) + "/" + S.walk + "/" + S.club;
   if (S.termCache.has(key)) return S.termCache.get(key);
-  const groups = line.groups || [{ alts: line.alts }];
-  let c = matches(groups, true); if (!c.length) c = matches(groups, false);
+  const groups = line.galts ? line.galts.map(a => ({ alts: a })) : (line.groups || [{ alts: line.alts }]);
+  let c = matches(groups, true, line.must); if (!c.length) c = matches(groups, false, line.must);
   // "tomatoes" means fresh tomatoes: drop processed or flavoured versions unless the words asked for them
   const asked = (line.alts.join(" ") + " " + (line.he || "")).toLowerCase();
   const plain = c.filter(m => !PROCESSED.some(w => m.it._h.includes(w) && !asked.includes(w)));
@@ -208,8 +278,10 @@ const uid = () => "l" + Math.random().toString(36).slice(2, 9);
 function addFromSuggestion(g) {
   let line;
   if (g.type === "term") {
-    line = S.list.find(l => l.alts && l.alts.join() === g.alts.join());
-    if (line) line.qty++; else { line = { id: uid(), qty: 1, en: g.en, he: g.he, alts: g.alts, groups: g.groups }; S.list.push(line); }
+    const sig = l => JSON.stringify([l.galts || [l.alts], l.must || []]);
+    const mine = JSON.stringify([g.galts, g.must || []]);
+    line = S.list.find(l => l.alts && sig(l) === mine);
+    if (line) line.qty++; else { line = { id: uid(), qty: 1, en: g.en, he: g.he, alts: g.alts, galts: g.galts, must: g.must && g.must.length ? g.must : undefined }; S.list.push(line); }
   } else if (g.type === "product") {
     const k = g.m.it.k; line = S.list.find(l => l.k === k);
     if (line) line.qty++; else { line = { k, n: g.m.it.n, qty: 1 }; S.list.push(line); }
@@ -218,30 +290,43 @@ function addFromSuggestion(g) {
 }
 function changeQty(id, d) { const l = S.list.find(x => lineId(x) === id); if (!l) return; l.qty += d; if (l.qty <= 0) S.list = S.list.filter(x => x !== l); saveList(); emit({ qty: id }); }
 function removeLine(id) { S.list = S.list.filter(x => lineId(x) !== id); saveList(); emit({ removed: id }); }
-function addText(text) { const pq = parseQuery(text); const sg = buildSuggestions(text); if (sg.length) addFromSuggestion(sg[0]); return pq; }
+function addText(text) { const sg = buildSuggestions(text).items; if (sg.length) addFromSuggestion(sg[0]); }
 
 // ---------- suggestions (shared logic; each variant styles the popover)
-function buildSuggestions(q) {
-  q = q.trim(); if (!q) return [];
-  const pq = parseQuery(q); const ms = matches(pq.groups, false); const out = [];
-  if ((pq.groups.some(g => g.he) || isHeb(q)) && ms.length) {
-    const term = { type: "term", en: isHeb(q) ? (pq.en.includes("…") ? "" : pq.en) : q, he: isHeb(q) ? q : pq.he, groups: pq.groups, alts: pq.groups[0].alts };
-    const cands = matches(pq.groups, true);
+// Returns { items, chips, unknown }: a general item ("any french butter"), exact products, and chips to narrow down.
+function buildSuggestions(q, must) {
+  q = q.trim(); if (!q) return { items: [], chips: [], unknown: [] };
+  must = must || [];
+  const pq = parseQuery(q); const ms = matches(pq.groups, false, must, pq.optional); const items = [];
+  const label = (base, he) => {
+    const enParts = [base, ...must.map(f => f.en).filter(Boolean)].filter(Boolean);
+    const heParts = [he, ...must.filter(f => f.type === "word" && f.he).map(f => f.he)].filter(Boolean);
+    return { en: enParts.join(" · "), he: heParts.join(" ") };
+  };
+  if (ms.length && (pq.groups.some(g => g.he) || isHeb(q))) {
+    const base = isHeb(q) && !/[a-z]/i.test(q) ? (pq.en.includes("…") ? "" : pq.en) : norm(q).split(" ").filter(w => !pq.unknown.includes(w)).join(" ");
+    // chips come from the products that really are the thing (name starts with it), not ones that only mention it
+    var chipPool = matches(pq.groups, true, must); if (chipPool.length < 3) chipPool = ms;
+    const lb = label(base, pq.he);
+    const term = { type: "term", en: lb.en, he: lb.he, groups: pq.groups, alts: pq.groups[0].alts, galts: pq.groups.map(g => g.alts), must };
+    const cands = matches(pq.groups, true, must);
     term.cheap = (cands.length ? cands : ms).reduce((a, b) => (!a || b.best.v < a.best.v) ? b : a, null);
-    out.push(term);
+    term.count = (cands.length ? cands : ms).length;
+    items.push(term);
   }
-  ms.slice(0, 7).forEach(m => out.push({ type: "product", m }));
-  if (!out.length) out.push({ type: "note", text: q });
-  return out;
+  ms.slice(0, 12).forEach(m => items.push({ type: "product", m }));
+  if (!items.length) items.push({ type: "note", text: q });
+  return { items, chips: refineChips(typeof chipPool !== "undefined" ? chipPool : ms, pq.groups, must), unknown: pq.unknown, total: ms.length };
 }
+const sizeText = it => { const uc = UNIT_CLASS(it.u || ""); return it.q && uc && !(uc === "pcs" && it.q === 1) ? `${+(+it.q).toFixed(3)} ${uc}` : ""; };
 function suggestionHTML(g, i, sel) {
   if (g.type === "term") { const c = g.cheap;
-    return `<li class="sg term" role="option" data-i="${i}" aria-selected="${i === sel}"><div class="sg-main"><span class="sg-kind">Any</span>
+    return `<li class="sg term" role="option" data-i="${i}" aria-selected="${i === sel}"><div class="sg-main"><span class="sg-kind">Any of ${g.count} matching</span>
       <span class="sg-en">${esc(g.en || g.he)}</span>${g.en && g.he ? `<bdi class="sg-he" dir="rtl" lang="he">${esc(g.he)}</bdi>` : ""}</div>
       <div class="sg-side">${c ? `<span class="sg-from">from</span>${priceHTML(c.best.pr)}${pillHTML(c.best.s)}` : ""}</div></li>`; }
-  if (g.type === "product") { const { it, best, n } = g.m; const gl = glossHe(it.n);
+  if (g.type === "product") { const { it, best, n } = g.m; const gl = glossHe(it.n); const sz = sizeText(it);
     return `<li class="sg" role="option" data-i="${i}" aria-selected="${i === sel}"><div class="sg-main"><bdi class="sg-he" dir="rtl" lang="he">${esc(it.n)}</bdi>
-      <span class="sg-en">${gl.known ? esc(gl.text) : ""}<span class="sg-n"> · ${n} shop${n === 1 ? "" : "s"}</span></span></div>
+      <span class="sg-en">${gl.known ? esc(gl.text) : ""}<span class="sg-n">${gl.known ? " · " : ""}${sz ? esc(sz) + " · " : ""}${n} shop${n === 1 ? "" : "s"}</span></span></div>
       <div class="sg-side">${priceHTML(best.pr)}${pillHTML(best.s)}</div></li>`; }
   return `<li class="sg" role="option" data-i="${i}" aria-selected="true"><div class="sg-main"><span class="sg-kind">Note</span><span class="sg-en">${esc(g.text)}</span>
     <span class="sg-n">Not sold within ${S.walk} min; stays on the list unpriced</span></div></li>`;
@@ -251,12 +336,26 @@ function composer(host, { placeholder, onAdd }) {
   host.innerHTML = `<div class="cmp-box"><input class="cmp-input" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="done"
     placeholder="${esc(placeholder)}" aria-label="Add an item, in English or Hebrew" role="combobox" aria-expanded="false" aria-autocomplete="list">
     <ul class="cmp-pop" role="listbox" data-state="closed"></ul></div>`;
-  const input = $(".cmp-input", host), pop = $(".cmp-pop", host); let items = [], sel = 0;
+  const input = $(".cmp-input", host), pop = $(".cmp-pop", host); let items = [], sel = 0, must = [], chips = [];
   const open = o => { pop.dataset.state = o ? "open" : "closed"; input.setAttribute("aria-expanded", o); };
-  const render = () => { items = buildSuggestions(input.value); sel = 0; if (!items.length) return open(false); pop.innerHTML = items.map((g, i) => suggestionHTML(g, i, sel)).join(""); open(true); };
+  const render = () => {
+    const r = buildSuggestions(input.value, must); items = r.items; chips = r.chips; sel = 0;
+    if (!items.length) return open(false);
+    const head = (must.length || chips.length || r.unknown.length) ? `<li class="sg-refine" role="presentation">
+        ${r.unknown.length ? `<div class="sg-unknown">Didn't recognise <b>${r.unknown.map(esc).join(", ")}</b>, so it isn't used. Narrow down here, or pick an exact product.</div>` : ""}
+        <div class="sg-chips"><span class="sg-chips-l">${must.length ? "Only" : "Narrow down"}</span>
+          ${must.map((f, j) => `<button class="sg-chip on" data-un="${j}" aria-pressed="true">${esc(chipLabel(f))} <span aria-hidden="true">×</span></button>`).join("")}
+          ${chips.map((c, j) => `<button class="sg-chip" data-ch="${j}" aria-pressed="false">${esc(chipLabel(c))}</button>`).join("")}</div></li>` : "";
+    pop.innerHTML = head + items.map((g, i) => (i === 1 && items[0].type === "term" ? `<li class="sg-sep" role="presentation">Or this exact product</li>` : "") + suggestionHTML(g, i, sel)).join("");
+    open(true);
+  };
   const pick = i => { const g = items[i]; if (!g) return; const el = $(`.sg[data-i="${i}"]`, pop); const line = addFromSuggestion(g);
-    input.value = ""; items = []; open(false); onAdd && onAdd(line, el, g); };
-  input.addEventListener("input", render);
+    input.value = ""; items = []; must = []; open(false); onAdd && onAdd(line, el, g); };
+  input.addEventListener("input", () => { if (!input.value.trim()) must = []; render(); });
+  pop.addEventListener("click", e => {
+    const on = e.target.closest("[data-ch]"); if (on) { must = must.concat([chips[+on.dataset.ch]]); render(); input.focus(); return; }
+    const off = e.target.closest("[data-un]"); if (off) { must = must.filter((_, j) => j !== +off.dataset.un); render(); input.focus(); }
+  });
   input.addEventListener("focus", () => { if (input.value.trim()) render(); });
   input.addEventListener("keydown", e => {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); if (!items.length) return; sel = (sel + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
@@ -342,12 +441,12 @@ function tween(el, to, fmt = ils, duration = 320) {
 
 // ---------- sharing a list as a link (#list=…)
 function encodeList(items) {
-  const c = items.map(l => l.k ? [l.k, l.qty] : l.alts ? ["~", l.qty, l.en || "", l.he || "", l.alts] : [0, l.qty, l.n]);
+  const c = items.map(l => l.k ? [l.k, l.qty] : l.alts ? ["~", l.qty, l.en || "", l.he || "", l.alts, l.galts || null, l.must || null] : [0, l.qty, l.n]);
   return btoa(unescape(encodeURIComponent(JSON.stringify(c)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 function decodeList(code) {
   return JSON.parse(decodeURIComponent(escape(atob(code.replace(/-/g, "+").replace(/_/g, "/"))))).map(r =>
-    r[0] === "~" ? { id: uid(), qty: +r[1] || 1, en: r[2], he: r[3], alts: r[4] }
+    r[0] === "~" ? { id: uid(), qty: +r[1] || 1, en: r[2], he: r[3], alts: r[4], galts: r[5] || undefined, must: r[6] || undefined }
     : r[0] ? { k: String(r[0]), n: (S.byKey.get(String(r[0])) || {}).n || String(r[0]), qty: +r[1] || 1 }
     : { id: uid(), n: String(r[2] || ""), qty: +r[1] || 1 });
 }
