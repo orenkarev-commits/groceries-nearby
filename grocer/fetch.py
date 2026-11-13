@@ -106,22 +106,41 @@ def load_previous():
         return None
 
 
+def load_patch():
+    """Prices the Mac fetched from Israel for shops the cloud can't reach (a GitHub release asset; see grocer/assist.py)."""
+    url = os.environ.get("PATCH_URL")
+    if not url:
+        return None
+    try:
+        from .net import Client, unpack
+        return json.loads(unpack(Client().request(url, timeout=120, tries=2)))
+    except Exception as e:  # noqa: BLE001 - no patch is normal
+        print("no Mac patch:", repr(e)[:120])
+        return None
+
+
 def carry_over(out_stores, items, now, max_age_days=7):
-    """A branch that failed this run (e.g. a portal that blocks servers outside Israel) keeps its last good
-    prices for up to a week, marked with their date, rather than vanishing from the comparison."""
-    failed = [r for r in out_stores if r["status"] == "error"]
-    if not failed:
-        return
-    prev = load_previous()
-    if not prev:
-        return
+    """A branch that failed this run (e.g. a portal that blocks servers outside Israel) is filled from, in order:
+    the Mac's patch (fresh prices fetched from Israel), then the last published copy (kept up to a week).
+    Either way it's marked with the date its prices are from."""
+    for source, label in ((load_patch(), "mac"), (None, "previous")):
+        failed = [r for r in out_stores if r["status"] == "error"]
+        if not failed:
+            return
+        prev = source if label == "mac" else load_previous()
+        if prev:
+            merge_from(prev, failed, items, now, max_age_days, label)
+
+
+def merge_from(prev, failed, items, now, max_age_days, label):
     prev_by = {(s["chain_id"], s["store_id"]): s for s in prev["stores"] if s.get("status") == "ok"}
     for rec in failed:
         old = prev_by.get((rec["chain_id"], rec["store_id"]))
         if not old:
             continue
         since = old.get("stale_from") or prev["generated"][:10]
-        if (now.date() - dt.date.fromisoformat(since)).days > max_age_days:
+        age = (now.date() - dt.date.fromisoformat(since)).days
+        if age > max_age_days or (label == "mac" and age > 1):
             continue
         osid, nsid, n = str(old["id"]), str(rec["id"]), 0
         for it in prev["items"]:
@@ -133,9 +152,13 @@ def carry_over(out_stores, items, now, max_age_days=7):
                 e = items[it["k"]] = {"k": it["k"], "n": it["n"], "b": it.get("b", ""), "q": it.get("q"), "u": it.get("u", ""), "p": {}}
             e["p"][nsid] = pr
             n += 1
-        rec.update(status="ok", stale_from=since, n_items=n, n_promos=old.get("n_promos", 0), updated=old.get("updated"),
-                   note="Prices from %s: this shop's file couldn't be fetched today (%s)" % (since, rec.get("error", "")[:80]))
-        print("carried over %s %s: %d items from %s" % (rec["chain"], rec["name"][:24], n, since), flush=True)
+        fresh = label == "mac" and since == now.date().isoformat()
+        rec.update(status="ok", via=label, n_items=n, n_promos=old.get("n_promos", 0), updated=old.get("updated"),
+                   note=("Fetched from Israel by the Mac (the cloud can't reach this chain)" if label == "mac"
+                         else "Prices from %s: this shop's file couldn't be fetched today (%s)" % (since, rec.get("error", "")[:80])))
+        if not fresh:
+            rec["stale_from"] = since
+        print("filled %s %s from %s: %d items, prices %s" % (rec["chain"], rec["name"][:24], label, n, since), flush=True)
 
 
 def main():

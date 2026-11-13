@@ -23,6 +23,8 @@ jobs:
     env:
       TZ: Asia/Jerusalem
       PREV_CATALOG_URL: https://orenkarev-commits.github.io/groceries-nearby/catalog.json
+      # prices the Mac fetched from Israel for chains that block GitHub's servers (only when needed)
+      PATCH_URL: https://github.com/orenkarev-commits/groceries-nearby/releases/download/mac-patch/mac-patch.json.gz
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
