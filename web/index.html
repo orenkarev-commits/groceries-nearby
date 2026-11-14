@@ -14,6 +14,10 @@
 <link rel="icon" href="icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <title>Groceries near home</title>
+<script>
+  // Apply the saved Light/Dark choice before anything paints (Auto follows the phone).
+  try { const t = localStorage.getItem("tlvg-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&display=swap" rel="stylesheet">
@@ -23,7 +27,7 @@
 html, body { margin: 0; }
 html { -webkit-text-size-adjust: 100%; }
 body { font: 16px/1.45 Rubik, system-ui, sans-serif; font-variant-numeric: tabular-nums; -webkit-tap-highlight-color: transparent; background: #E4E8E5; }
-@media (prefers-color-scheme: dark) { body { background: #121815; } }
+@media (prefers-color-scheme: dark) { html:not([data-theme="light"]) body { background: #121815; } }
 button, input, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; touch-action: manipulation; }
 :focus-visible { outline: 2px solid #1D7449; outline-offset: 2px; }
@@ -59,7 +63,10 @@ bdi { unicode-bidi: isolate; }
 @media (hover: hover) and (pointer: fine) { .sg-chip:hover { border-color: #1D7449; } }
 .sg-chip.on { background: #1D7449; border-color: #1D7449; color: #fff; }
 .m-home { width: 34px; height: 34px; border-radius: 11px; background: #16231D; color: #F5F7F3; display: grid; place-items: center; font-size: 18px; transform: translate(-50%, -50%); border: 2px solid #fff; box-shadow: 0 6px 14px -6px rgba(0,0,0,.6); }
-.dark-tiles .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.85) saturate(.6); }
+@media (prefers-color-scheme: dark) { html:not([data-theme="light"]) .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.85) saturate(.6); } }
+html[data-theme="dark"] .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.85) saturate(.6); }
+html[data-theme="dark"] body { background: #121815; }
+html[data-theme="light"] body { background: #E4E8E5; }
 .leaflet-container { font: inherit; }
 @media (prefers-reduced-motion: reduce) { .cmp-pop { transition: opacity 150ms ease; } .cmp-pop[data-state="closed"] { transform: none; } }
 </style>
@@ -78,7 +85,7 @@ loadAll().then(() => {
   App.mount(document.getElementById("app"));
   if (added) {
     const t = document.querySelector(".v4 .toast");
-    if (t) { t.textContent = added > 0 ? `Added ${added} item${added === 1 ? "" : "s"} from the shared list` : "That shared list link is damaged";
+    if (t) { t.textContent = added > 0 ? `Opened the shared list as "${curList().name}" (${added} item${added === 1 ? "" : "s"})` : "That shared list link is damaged";
       setTimeout(() => t.classList.add("show"), 400); setTimeout(() => t.classList.remove("show"), 2600); }
   }
 }).catch(() => {

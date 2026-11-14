@@ -259,22 +259,53 @@ function lineTitle(l) {
   return { en: isHeb(l.n) ? "" : l.n, he: isHeb(l.n) ? l.n : "" };
 }
 
-// ---------- list storage (same list as the app)
-const LS_KEY = "tlvg-list-v1";
-async function loadList() {
-  if (LOCAL) return (await (await fetch("/api/list")).json()).items || [];
-  try { return (JSON.parse(localStorage.getItem(LS_KEY) || "null") || {}).items || []; } catch (e) { return []; }
+// ---------- saved lists: several named lists; S.list is always the current one's items
+// Stored in data/list.json by the Mac app, in this browser's storage on the phone site. Old single-list data migrates.
+const LS_KEY = "tlvg-list-v1", LS_LISTS = "tlvg-lists-v2";
+const uid = () => "l" + Math.random().toString(36).slice(2, 9);
+function normalizeLists(d) {
+  if (d && Array.isArray(d.lists) && d.lists.length) {
+    const lists = d.lists.map(l => ({ id: l.id || uid(), name: String(l.name || "Shopping list").slice(0, 40), items: Array.isArray(l.items) ? l.items : [] }));
+    return { lists, current: lists.some(l => l.id === d.current) ? d.current : lists[0].id };
+  }
+  const id = uid();
+  return { lists: [{ id, name: "Shopping list", items: (d && Array.isArray(d.items)) ? d.items : [] }], current: id };
 }
+async function loadLists() {
+  if (LOCAL) return normalizeLists(await (await fetch("/api/list")).json());
+  let d = null;
+  try { d = JSON.parse(localStorage.getItem(LS_LISTS) || "null") || JSON.parse(localStorage.getItem(LS_KEY) || "null"); } catch (e) {}
+  return normalizeLists(d);
+}
+S.store = normalizeLists(null);
+const curList = () => S.store.lists.find(l => l.id === S.store.current) || S.store.lists[0];
+Object.defineProperty(S, "list", { get: () => curList().items, set: v => { curList().items = v; } });
 let saveTimer;
 function saveList() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    const items = S.list.map(({ groups, ...rest }) => rest);
-    if (LOCAL) fetch("/api/list", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }) }).catch(() => {});
-    else try { localStorage.setItem(LS_KEY, JSON.stringify({ items })); } catch (e) {}
+    const data = { current: S.store.current, lists: S.store.lists.map(l => ({ id: l.id, name: l.name, items: l.items.map(({ groups, ...rest }) => rest) })) };
+    if (LOCAL) fetch("/api/list", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) }).catch(() => {});
+    else try { localStorage.setItem(LS_LISTS, JSON.stringify(data)); } catch (e) {}
   }, 200);
 }
-const uid = () => "l" + Math.random().toString(36).slice(2, 9);
+function uniqueName(base) {
+  const names = new Set(S.store.lists.map(l => l.name.toLowerCase()));
+  if (!names.has(base.toLowerCase())) return base;
+  for (let i = 2; ; i++) if (!names.has((base + " " + i).toLowerCase())) return base + " " + i;
+}
+function newList(name, items) {
+  const l = { id: uid(), name: uniqueName((name || "").trim().slice(0, 40) || "New list"), items: items || [] };
+  S.store.lists.push(l); S.store.current = l.id; saveList(); emit({ switched: l.id }); return l;
+}
+function switchList(id) { if (!S.store.lists.some(l => l.id === id)) return; S.store.current = id; saveList(); emit({ switched: id }); }
+function renameList(id, name) { const l = S.store.lists.find(x => x.id === id); name = (name || "").trim().slice(0, 40); if (!l || !name) return; l.name = name; saveList(); emit({ renamed: id }); }
+function deleteList(id) {
+  S.store.lists = S.store.lists.filter(l => l.id !== id);
+  if (!S.store.lists.length) S.store.lists.push({ id: uid(), name: "Shopping list", items: [] });
+  if (!S.store.lists.some(l => l.id === S.store.current)) S.store.current = S.store.lists[0].id;
+  saveList(); emit({ switched: S.store.current });
+}
 function addFromSuggestion(g) {
   let line;
   if (g.type === "term") {
@@ -373,11 +404,9 @@ function composer(host, { placeholder, onAdd }) {
 // ---------- map (Leaflet + OpenStreetMap tiles, no key)
 function makeMap(el, { onSelect, pinFor }) {
   if (!window.L) { el.innerHTML = `<p style="padding:20px">The map couldn't load.</p>`; return null; }
-  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
   const map = L.map(el, { zoomControl: false, scrollWheelZoom: false, attributionControl: true }).setView([S.home.lat, S.home.lon], 16);
   L.control.zoom({ position: "topright" }).addTo(map);
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(map);
-  if (dark) el.classList.add("dark-tiles");
   const r10 = 10 * S.walkCfg.m_per_min / S.walkCfg.detour, r14 = 14 * S.walkCfg.m_per_min / S.walkCfg.detour;
   const ring = getComputedStyle(el).getPropertyValue("--ring").trim() || "#1D7449";
   L.circle([S.home.lat, S.home.lon], { radius: r14, color: ring, weight: 1.5, dashArray: "5 7", fill: false, interactive: false }).addTo(map);
@@ -451,15 +480,15 @@ function decodeList(code) {
     : { id: uid(), n: String(r[2] || ""), qty: +r[1] || 1 });
 }
 // Merges a shared list from the URL into this device's list; returns how many items were new (or -1 if the link is broken).
+// A shared link opens as its own saved list (named by the sender if they included a name).
 function importShared() {
   const m = location.hash.match(/list=([\w-]+)/); if (!m) return 0;
+  const nm = location.hash.match(/name=([^&]+)/);
   let added = 0;
   try {
-    for (const it of decodeList(m[1])) {
-      const same = S.list.find(l => (it.k && l.k === it.k) || (it.alts && l.alts && l.alts.join() === it.alts.join()) || (!it.k && !it.alts && l.n === it.n));
-      if (same) same.qty = Math.max(same.qty, it.qty); else { S.list.push(it); added++; }
-    }
-    saveList();
+    const items = decodeList(m[1]);
+    const name = nm ? decodeURIComponent(nm[1]) : "Shared list";
+    newList(name, items); added = items.length;
   } catch (e) { added = -1; }
   history.replaceState(null, "", location.pathname);
   return added;
@@ -467,8 +496,9 @@ function importShared() {
 
 // ---------- boot
 async function loadAll() {
-  const [c, list] = await Promise.all([fetch("catalog.json", { cache: "no-cache" }).then(r => r.json()), loadList()]);
+  const [c, store] = await Promise.all([fetch("catalog.json", { cache: "no-cache" }).then(r => r.json()), loadLists()]);
   S.stores = c.stores; S.home = c.home; S.walkCfg = c.walk; S.items = c.items; S.generated = c.generated;
+  S.byKey = new Map();
   for (const it of S.items) { it._h = norm(it.n + " " + (it.b || "")).toLowerCase(); S.byKey.set(it.k, it); }
-  S.list = list;
+  S.store = store;
 }

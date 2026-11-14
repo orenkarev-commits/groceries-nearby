@@ -13,7 +13,7 @@
 .v4 .slot { height: 14px; border-radius: 8px; background: #2A332F; box-shadow: inset 0 3px 6px rgba(0,0,0,.5); margin: 0 -10px; position: relative; z-index: 2; }
 .v4 .receipt { position: relative; z-index: 1; margin: -7px 6px 12px; background: var(--paper); color: var(--ink); padding: 26px 24px 30px; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 14px; box-shadow: 0 18px 30px -22px rgba(0,0,0,.5); }
 .v4 .receipt::after { content: ""; position: absolute; left: 0; right: 0; bottom: -12px; height: 12px; background: conic-gradient(from 135deg at top, var(--paper) 90deg, #0000 0) top / 16px 12px repeat-x; }
-.v4 .receipt[data-enter] { animation: v4print 520ms cubic-bezier(0.23, 1, 0.32, 1) both; }
+.v4 .receipt[data-enter] { animation: v4print 520ms cubic-bezier(0.23, 1, 0.32, 1) backwards; }   /* no clip left behind, so the list menu can overflow */
 @keyframes v4print { from { transform: translateY(-40px); clip-path: inset(0 0 100% 0); } to { transform: translateY(0); clip-path: inset(0 0 -20px 0); } }
 .v4 .r-head { text-align: center; }
 .v4 .r-title { font-family: Rubik, sans-serif; font-weight: 700; font-size: 22px; letter-spacing: -.01em; }
@@ -158,6 +158,39 @@
 .v4 .shopcard a { display: inline-block; margin-top: 8px; background: #1D7449; color: #fff; text-decoration: none; padding: 7px 14px; border-radius: 999px; font-size: 14px; transition: transform 160ms cubic-bezier(0.23,1,0.32,1); }
 .v4 .shopcard a:active { transform: scale(.97); }
 
+/* theme switch */
+.v4 .theme { display: inline-flex; border: 1px solid var(--rule); border-radius: 999px; padding: 3px; background: var(--paper); }
+.v4 .theme button { border: 0; background: none; padding: 5px 10px; border-radius: 999px; font-size: 12px; color: #5F6B65; transition: background-color 160ms ease, color 160ms ease; }
+.v4 .theme button[aria-pressed="true"] { background: #1B2420; color: #fff; }
+
+/* saved lists: the receipt title opens a menu */
+.v4 .listbtn { border: 0; background: none; padding: 2px 8px; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; color: var(--ink); transition: background-color 160ms ease, transform 160ms cubic-bezier(0.23,1,0.32,1); }
+.v4 .listbtn:active { transform: scale(0.98); }
+@media (hover: hover) and (pointer: fine) { .v4 .listbtn:hover { background: var(--leaf-soft); } }
+.v4 .listbtn .chev { font-family: Rubik, sans-serif; font-size: 14px; color: var(--muted); transition: transform 200ms cubic-bezier(0.23,1,0.32,1); }
+.v4 .listbtn[aria-expanded="true"] .chev { transform: rotate(180deg); }
+.v4 .r-head { position: relative; }
+.v4 .listmenu { position: absolute; z-index: 3500; left: 50%; top: 40px; width: min(320px, 92vw); transform: translateX(-50%); transform-origin: top center; text-align: left;
+  background: #fff; color: var(--ink); border: 1px solid var(--rule); border-radius: 14px; box-shadow: 0 24px 50px -24px rgba(0,0,0,.45); padding: 6px; font-family: Rubik, sans-serif;
+  animation: v4menu 160ms cubic-bezier(0.23,1,0.32,1) both; }
+.v4 .listmenu[hidden] { display: none; }
+@keyframes v4menu { from { opacity: 0; transform: translateX(-50%) scale(0.97) translateY(-4px); } }
+.v4 .lm-it { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 10px; border: 0; background: none; padding: 9px 10px; border-radius: 9px; font-size: 15px; color: inherit; text-align: left; transition: background-color 160ms ease; }
+@media (hover: hover) and (pointer: fine) { .v4 .lm-it:hover { background: var(--leaf-soft); } }
+.v4 .lm-it[aria-current="true"] { font-weight: 600; }
+.v4 .lm-it[aria-current="true"]::before { content: "✓"; color: var(--leaf); margin-right: -4px; }
+.v4 .lm-it .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.v4 .lm-it small { color: var(--muted); font-size: 12px; font-weight: 400; }
+.v4 .lm-sep { height: 1px; background: var(--rule); margin: 6px 4px; }
+.v4 .lm-act { width: 100%; text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: 9px; font-size: 14px; color: inherit; transition: background-color 160ms ease; }
+@media (hover: hover) and (pointer: fine) { .v4 .lm-act:hover { background: var(--leaf-soft); } }
+.v4 .lm-act.danger { color: #B0442A; }
+.v4 .lm-form { display: flex; gap: 6px; padding: 6px 4px; }
+.v4 .lm-form input { flex: 1; min-width: 0; font-size: 16px; padding: 7px 10px; border: 1px solid var(--rule); border-radius: 8px; background: #fff; color: var(--ink); }
+.v4 .lm-confirm { padding: 8px 10px; font-size: 14px; }
+.v4 .lm-confirm .row { display: flex; gap: 6px; margin-top: 8px; }
+.v4 .act.danger { background: #B0442A; border-color: #B0442A; color: #fff; }
+
 /* actions, tools, toast */
 .v4 .acts { display: flex; gap: 6px; }
 .v4 .act { border: 1px solid var(--rule); background: var(--paper); color: var(--ink); border-radius: 999px; padding: 6px 12px; font-size: 13px; text-decoration: none; display: inline-flex; align-items: center;
@@ -183,8 +216,10 @@
   transition: opacity 200ms cubic-bezier(0.23,1,0.32,1), transform 200ms cubic-bezier(0.23,1,0.32,1); }
 .v4 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
-/* dark: the counter goes dark, the receipt stays paper */
-@media (prefers-color-scheme: dark) {
+@media (prefers-reduced-motion: reduce) { .v4 .listmenu { animation: none; } }
+`;
+  // Dark rules, applied when the phone is in dark mode (Auto) or when the switch says Dark; Light always wins.
+  const DARK = `
   .v4 { --counter: #121815; --card: #18211C; --line: #26312B; }
   .v4 .side { color: #E6ECE8; } .v4 .sub, .v4 .chk, .v4 .waiting { color: #9DAAA3; }
   .v4 .split { --board: #1A221E; --track: #26312B; --ink: #E6ECE8; --muted: #9DAAA3; --line: #2A3630; --counter: #26312B; --leaf-soft: rgba(71,196,134,.12); }
@@ -193,7 +228,12 @@
   .v4 details.tool { color: #E6ECE8; } .v4 .tool-body .muted, .v4 .trOut .from { color: #9DAAA3; }
   .v4 .seg { background: #1A221E; border-color: #2A3630; } .v4 .seg button { color: #9DAAA3; } .v4 .seg button[aria-pressed="true"] { background: #E6ECE8; color: #121815; }
   .v4 .mapcard, .v4 .waiting { border-color: #2A3630; }
-}
+  .v4 .theme { background: #1A221E; border-color: #2A3630; } .v4 .theme button { color: #9DAAA3; } .v4 .theme button[aria-pressed="true"] { background: #E6ECE8; color: #121815; }
+`;
+  const THEMED_CSS = () => CSS
+    + `@media (prefers-color-scheme: dark) {${DARK.replaceAll(".v4", 'html:not([data-theme="light"]) .v4')}}\n`
+    + DARK.replaceAll(".v4", 'html[data-theme="dark"] .v4');
+  const CSS2 = `
 @media (prefers-reduced-motion: reduce) { .v4 .receipt[data-enter], .v4 .ln[data-new], .v4 .ln.strike::after, .v4 .sc[data-deal], .v4 .pin[data-drop], .v4 .md.pop, .v4 .chooser { animation: none; } .v4 .sc, .v4 .pin .hd { transition: none; } }
 `;
   let style, root, cmp, mapc, off, sel = null, dropped = false, lastPodium = "";
@@ -201,6 +241,7 @@
   // ---- receipt (list only)
   function renderLines(addedId) {
     const box = $(".lines", root);
+    $(".r-title", root).textContent = curList().name;
     $(".count", root).textContent = S.list.reduce((a, l) => a + l.qty, 0);
     if (!S.list.length) { box.innerHTML = `<li class="empty">Your list is empty. Type what you need above, in English or Hebrew.</li>`; return; }
     box.innerHTML = S.list.map(l => {
@@ -214,6 +255,42 @@
         ${l.alts && chooserOpen === id ? chooserHTML(l) : ""}
       </li>`;
     }).join("");
+  }
+
+  // ---- colour theme: Auto follows the phone; Light/Dark are remembered on this device
+  function themeNow() { try { const t = localStorage.getItem("tlvg-theme"); return t === "light" || t === "dark" ? t : "auto"; } catch (e) { return "auto"; } }
+  function setTheme(t) {
+    try { t === "auto" ? localStorage.removeItem("tlvg-theme") : localStorage.setItem("tlvg-theme", t); } catch (e) {}
+    if (t === "auto") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+    const dark = t === "dark" || (t === "auto" && matchMedia("(prefers-color-scheme: dark)").matches);
+    document.querySelectorAll('meta[name="theme-color"]').forEach(m => { m.setAttribute("content", dark ? "#121815" : "#E4E8E5"); m.removeAttribute("media"); });
+    $$(".theme button", root).forEach(b => b.setAttribute("aria-pressed", b.dataset.themeSet === t));
+  }
+
+  // ---- saved lists menu (opens from the receipt title)
+  let menuMode = null;   // null | "new" | "rename" | "delete"
+  function renderMenu() {
+    const m = $(".listmenu", root); const cur = curList();
+    const count = l => l.items.reduce((a, x) => a + x.qty, 0);
+    let html = S.store.lists.map(l => `<button class="lm-it" data-list="${esc(l.id)}" aria-current="${l.id === cur.id}"><span class="nm">${esc(l.name)}</span><small>${count(l)} item${count(l) === 1 ? "" : "s"}</small></button>`).join("");
+    html += `<div class="lm-sep"></div>`;
+    if (menuMode === "new" || menuMode === "rename") {
+      html += `<form class="lm-form" data-mode="${menuMode}"><input maxlength="40" placeholder="${menuMode === "new" ? "Name, e.g. Shabbat dinner" : "List name"}" value="${menuMode === "rename" ? esc(cur.name) : ""}" aria-label="List name">
+        <button class="act primary" type="submit">${menuMode === "new" ? "Create" : "Save"}</button></form>`;
+    } else if (menuMode === "delete") {
+      html += `<div class="lm-confirm">Delete <b>${esc(cur.name)}</b> and its ${count(cur)} item${count(cur) === 1 ? "" : "s"}? This can't be undone.
+        <div class="row"><button class="act danger" data-lm="delete-yes">Delete list</button><button class="act" data-lm="cancel">Keep it</button></div></div>`;
+    } else {
+      html += `<button class="lm-act" data-lm="new">+ New list</button><button class="lm-act" data-lm="rename">Rename "${esc(cur.name)}"</button>
+        <button class="lm-act danger" data-lm="delete">Delete "${esc(cur.name)}"</button>`;
+    }
+    m.innerHTML = html;
+    const inp = $(".lm-form input", m); if (inp) { inp.focus(); inp.select(); }
+  }
+  function openMenu(open) {
+    const m = $(".listmenu", root), b = $(".listbtn", root);
+    if (open) { menuMode = null; renderMenu(); m.hidden = false; } else m.hidden = true;
+    b.setAttribute("aria-expanded", open);
   }
 
   // ---- choose the exact product for a general item (all its matches, most widely stocked first)
@@ -360,7 +437,7 @@
     if (!S.list.length) { toast("Your list is empty"); return; }
     const code = encodeList(S.list);
     const base = LOCAL ? (window.PUBLIC_URL || location.origin + "/") : location.origin + location.pathname;
-    const url = base + "#list=" + code;
+    const url = base + "#list=" + code + "&name=" + encodeURIComponent(curList().name);
     try { if (navigator.share) { await navigator.share({ title: "Shopping list", url }); return; } await navigator.clipboard.writeText(url); toast("Link copied. Paste it in WhatsApp."); }
     catch (e) { if (e && e.name !== "AbortError") prompt("Copy this link:", url); }
   }
@@ -376,12 +453,13 @@
 
   window.App = {
     mount(stage) {
-      style = document.createElement("style"); style.textContent = CSS; document.head.appendChild(style);
+      style = document.createElement("style"); style.textContent = THEMED_CSS() + CSS2; document.head.appendChild(style);
       const d = new Date(S.generated);
       stage.innerHTML = `<div class="v4"><div class="layout">
         <div class="printer"><div class="slot" aria-hidden="true"></div>
           <div class="receipt" data-enter>
-            <div class="r-head"><div class="r-title">Shopping list</div>
+            <div class="r-head"><button class="listbtn" aria-haspopup="true" aria-expanded="false" aria-controls="listMenu" title="Your saved lists"><span class="r-title"></span><span class="chev" aria-hidden="true">▾</span></button>
+              <div class="listmenu" id="listMenu" hidden></div>
               <div class="r-meta">${d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })} · English or עברית</div></div>
             <hr class="dash">
             <div class="cmpwrap"></div>
@@ -394,6 +472,7 @@
           <div class="side-head"><div><h2>Who's cheapest for your list?</h2><p class="sub">The top three shops within your walk, re-ranked every time the list changes.</p></div>
             <div style="display:grid;gap:8px;justify-items:end">
               <div class="seg" role="group" aria-label="Walking distance"><button data-w="10" aria-pressed="${S.walk === 10}">10 min walk</button><button data-w="14" aria-pressed="${S.walk === 14}">14 min</button></div>
+              <div class="theme" role="group" aria-label="Colour theme">${["auto", "light", "dark"].map(t => `<button data-theme-set="${t}" aria-pressed="${themeNow() === t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join("")}</div>
               <label class="chk"><input type="checkbox" class="club" ${S.club ? "checked" : ""}> Club and card deals</label>
               <div class="acts"><button class="act shareBtn">Share list</button>${LOCAL ? `<button class="act refreshBtn">Refresh prices</button>` : ""}</div></div></div>
           <div class="podium"></div>
@@ -415,6 +494,28 @@
       setTimeout(() => { dropped = true; }, 1300);
       root.insertAdjacentHTML("beforeend", `<div class="toast" role="status"></div>`);
       renderSave();
+      // theme + saved lists
+      root.addEventListener("click", e => {
+        const th = e.target.closest("[data-theme-set]"); if (th) { setTheme(th.dataset.themeSet); return; }
+        if (e.target.closest(".listbtn")) { openMenu($(".listmenu", root).hidden); return; }
+        const li = e.target.closest(".lm-it"); if (li) { switchList(li.dataset.list); openMenu(false); toast(`Switched to ${curList().name}`); return; }
+        const act = e.target.closest("[data-lm]");
+        if (act) {
+          const a = act.dataset.lm;
+          if (a === "new" || a === "rename" || a === "delete") { menuMode = a; renderMenu(); }
+          else if (a === "cancel") { menuMode = null; renderMenu(); }
+          else if (a === "delete-yes") { const name = curList().name; deleteList(S.store.current); openMenu(false); toast(`Deleted ${name}`); }
+          return;
+        }
+        if (!e.target.closest(".listmenu")) openMenu(false);
+      }, true);
+      root.addEventListener("submit", e => {
+        const f = e.target.closest(".lm-form"); if (!f) return; e.preventDefault();
+        const v = $("input", f).value.trim(); if (!v) return;
+        if (f.dataset.mode === "new") { newList(v); toast(`Started ${curList().name}`); } else { renameList(S.store.current, v); toast("Renamed"); }
+        openMenu(false); setTimeout(() => cmp && cmp.input.focus(), 0);
+      });
+      root.addEventListener("keydown", e => { if (e.key === "Escape" && !$(".listmenu", root).hidden) { openMenu(false); $(".listbtn", root).focus(); } });
       root.addEventListener("change", e => { if (e.target.matches(".club")) { S.club = e.target.checked; emit({}); } });
       root.addEventListener("input", e => { if (e.target.matches(".trIn")) renderTr(); });
       $(".shareBtn", root).addEventListener("click", shareList);
